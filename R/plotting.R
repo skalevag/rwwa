@@ -49,7 +49,7 @@ plot_trend <- function(mdl, ev, ev_year, rp = c(6, 40), add_loess = T, loess_col
   rl1 <- eff_return_level(mdl, rp[1])
   rl2 <- eff_return_level(mdl, rp[2])
 
-  if (mdl$dist %in% c("norm_logged")) {
+  if (mdl$dist %in% c("norm_logt")) {
     loc <- exp(loc); rl1 <- exp(rl1); rl2 <- exp(rl2); ev <- exp(ev)
   }
 
@@ -146,7 +146,7 @@ plot_covtrend <- function(mdl, xcov, trend_cov = NA, ci_cov = NA,  ci_col = "bla
     legend_lwd = c(legend_lwd,c(lwd,max(1,lwd -1))[1:length(rp)])
   }
 
-  plot(x, mdl$x, pch = 20, main = main, xlab = "", ylab = "", ylim = ylim, xlim = xlim,
+  plot(x, mdl$data[,mdl$varnm], pch = 20, main = main, xlab = "", ylab = "", ylim = ylim, xlim = xlim,
        col = adjustcolor("black", 0.6))
   mtext(xlab, side = 1, line = 2.5, cex = par("cex.lab"))
   mtext(ylab, side = 2, line = 2.5, cex = par("cex.lab"))
@@ -155,7 +155,7 @@ plot_covtrend <- function(mdl, xcov, trend_cov = NA, ci_cov = NA,  ci_col = "bla
   rl1 <- eff_return_level(mdl, rp[1], fixed_cov = trend_cov)[o]
   rl2 <- eff_return_level(mdl, rp[2], fixed_cov = trend_cov)[o]
 
-  if (mdl$dist %in% c("norm_logged")) {
+  if (mdl$dist %in% c("norm_logt")) {
     loc <- exp(loc); rl1 <- exp(rl1); rl2 <- exp(rl2); ev <- exp(ev)
   }
 
@@ -178,11 +178,13 @@ plot_covtrend <- function(mdl, xcov, trend_cov = NA, ci_cov = NA,  ci_col = "bla
       }, error = function(cond) {return(rep(NA, nrow(ci_cov)))})
     }), 1, quantile, c(0.025, 0.975), na.rm = T)
 
-    # confidence interval & markers for mu' at factual & counterfactual covariates
-    if (mdl$dist %in% c("norm_logged")) {
+    if (mdl$dist %in% c("norm_logt")) {
+      # confidence interval & markers for mu' at factual & counterfactual covariates
       segments(x0 = ci_cov[,xcov], y0 = exp(mu_ci["2.5%",]), y1 = exp(mu_ci["97.5%",]), lwd = 3, col = ci_col, lend = 1)
+      # matplot(ci_cov[,"gmst"], t(mu_ci), pch = 3, add = T, col = "red3") # line ends: not very elegant, so removed for now
       points(ci_cov[,xcov], sapply(rownames(ci_cov), function(rnm) exp(ns_pars(mdl, ci_cov[rnm,,drop = F])$loc)), pch = "_", col = ci_col, lwd = 2)
     } else {
+      # confidence interval & markers for mu' at factual & counterfactual covariates
       segments(x0 = ci_cov[,xcov], y0 = mu_ci["2.5%",], y1 = mu_ci["97.5%",], lwd = 3, col = ci_col, lend = 1)
       # matplot(ci_cov[,"gmst"], t(mu_ci), pch = 3, add = T, col = "red3") # line ends: not very elegant, so removed for now
       points(ci_cov[,xcov], sapply(rownames(ci_cov), function(rnm) ns_pars(mdl, ci_cov[rnm,,drop = F])$loc), pch = "_", col = ci_col, lwd = 2)
@@ -229,7 +231,7 @@ plot_returnlevels <- function(mdl, cov_f, cov_cf, ev, seed = 42, nsamp = 500, mo
                               xlim = c(1,10000), ylim = NA, pch = 20, xlab = "Return period (years)", ylab = NA, main = "",
                               legend_pos = "topright", legend_labels = c("Present climate", "Counterfactual climate")) {
 
-  x <- mdl$x
+  if(mdl$dist == "norm_logt") { x <- exp(mdl$x) } else { x <- mdl$x } # only used to set ylims
   if(missing(ev)) { ev <- mdl$ev }
 
   rp_x <- unique(c(seq(1.1,2,0.1), seq(2,100,1), seq(100,1000,10), seq(100,1000,100), seq(1000,10000,1000)))     # return periods at which to calculate values for curves
@@ -258,13 +260,11 @@ plot_returnlevels <- function(mdl, cov_f, cov_cf, ev, seed = 42, nsamp = 500, mo
   rp_event_pres <- 1/map_to_u(mdl, ev, fixed_cov = cov_f)
   rp_event_cf <- 1/map_to_u(mdl, ev, fixed_cov = cov_cf)
 
-  if (mdl$dist %in% c("norm_logged")) {
+  if (mdl$dist %in% c("norm_logt")) {
     rl_curve_pres <- exp(rl_curve_pres)
     rl_curve_cf <- exp(rl_curve_cf)
     rl_obs_pres <- exp(rl_obs_pres)
     rl_obs_cf <- exp(rl_obs_cf)
-    rp_event_pres <- exp(rp_event_pres)
-    rp_event_cf <- exp(rp_event_cf)
     ev <- exp(ev)
   }
 
@@ -322,7 +322,7 @@ plot_returnlevels <- function(mdl, cov_f, cov_cf, ev, seed = 42, nsamp = 500, mo
       }, error = function(cond) {return(rep(NA, length(x_ci)*2))})
     })
     est_ci <- apply(boot_res, 1, quantile, c(0.025, 0.975), na.rm = T)
-    if (mdl$dist %in% c("norm_logged")) est_ci <- exp(est_ci)
+    if (mdl$dist %in% c("norm_logt")) est_ci <- exp(est_ci)
 
     # shaded region for confidence intervals
     polygon(x = c(x_ci, rev(x_ci)), y = c(est_ci[1,1:length(x_ci)], rev(est_ci[2,1:length(x_ci)])), density = NULL, border = NA, col = adjustcolor("firebrick", 0.1))

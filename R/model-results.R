@@ -38,16 +38,20 @@ mdl_ests <- function(mdl, cov_f, cov_cf, ev, rp = NA) {
 
   # loop over counterfactual covariates (if necessary) & get PRs and intensity changes
   if(nrow(cov_cf) == 1) {
-      changes <- c("PR" = prob_ratio(mdl, ev, cov_f, cov_cf),
-                   "dI_abs" = tryCatch(int_change(mdl, rp, cov_f, cov_cf, relative = F), error = function(cond) {return(NA)}),
-                   "dI_rel" = tryCatch(int_change(mdl, rp, cov_f, cov_cf, relative = T), error = function(cond) {return(NA)}))
+    changes <- c("PR" = prob_ratio(mdl, ev, cov_f, cov_cf),
+                 "dI_abs" = tryCatch(int_change(mdl, rp, cov_f, cov_cf, relative = F), error = function(cond) {return(NA)}),
+                 "dI_rel" = tryCatch(int_change(mdl, rp, cov_f, cov_cf, relative = T), error = function(cond) {return(NA)}))
   } else {
-      changes <- unlist(lapply(rownames(cov_cf), function(rnm) {
-          pr <- prob_ratio(mdl, ev, cov_f, cov_cf[rnm,,drop = F])
-          di_abs <- tryCatch(int_change(mdl, rp, cov_f, cov_cf[rnm,,drop = F], relative = F), error = function(cond) {return(NA)})
-          di_rel <- tryCatch(int_change(mdl, rp, cov_f, cov_cf[rnm,,drop = F], relative = T), error = function(cond) {return(NA)})
-          setNames(c(pr, di_abs, di_rel), paste0(c("PR", "dI_abs", "dI_rel"), "_",rnm))
-      }))
+    changes <- unlist(lapply(rownames(cov_cf), function(rnm) {
+      pr <- prob_ratio(mdl, ev, cov_f, cov_cf[rnm,,drop = F])
+      di_abs <- tryCatch(int_change(mdl, rp, cov_f, cov_cf[rnm,,drop = F], relative = F), error = function(cond) {return(NA)})
+      di_rel <- tryCatch(int_change(mdl, rp, cov_f, cov_cf[rnm,,drop = F], relative = T), error = function(cond) {return(NA)})
+      setNames(c(pr, di_abs, di_rel), paste0(c("PR", "dI_abs", "dI_rel"), "_",rnm))
+    }))
+  }
+  if(mdl$dist %in% c("norm_logt")) {
+    ev <- exp(ev)
+    # could also reverse transformation on model parameters here, if preferred
   }
 
   return(c(mdl$par, "disp" = disp, "event_magnitude" = ev, "return_period" = rp, changes, "aic" = aic(mdl)))
@@ -67,7 +71,7 @@ mdl_ests <- function(mdl, cov_f, cov_cf, ev, rp = NA) {
 #' @param ci Scalar from 0 to 1 defining width of confidence interval. Default is 0.95
 #' @param return_sample Boolean: return confidence interval (F) or full bootstrap sample (T)? Default is to return the interval (F).
 #'
-#' @return Data.frame containing estimates of all model parameters and quantities of interest, along with limits of central confidence interval; or matrix of bootstrapped values of each quantity (can be useful if 95% interval is unstable)
+#' @return Data.frame containing estimates of all model parameters and quantities of interest, along with limits of central confidence interval; or matrix of bootstrapped values of each quantity (can be useful if 95% interval is unstable). The last row of the summary dataframe contains the number of observations, the number of bootstrap replicates, and the number of failed bootstrap samples.
 #'
 #' @export
 #'
@@ -108,18 +112,28 @@ boot_ci <- function(mdl, cov_f, cov_cf, ev, rp = NA, seed = 42, nsamp = 500, ci 
 
   # get bootstrap sample
   set.seed(seed)
-  boot_res <- sapply(1:nsamp, function(i) {
+  boot_res <- list()
+  i <- 1 # keep track of number of successes
+  f <- 0 # keep track of number of failures
+  while(length(boot_res) < nsamp) {
     boot_df <- mdl$data[sample(1:nrow(mdl$data), replace = T),]
     tryCatch({
       boot_mdl <- refit(mdl, new_data = boot_df)
-      mdl_ests(boot_mdl, cov_f, cov_cf, ev = ev, rp = rp)
+      boot_res[[i]] <- mdl_ests(boot_mdl, cov_f, cov_cf, ev = ev, rp = rp)
+      i <- i+1
     },
-    error = function(cond) {return(rep(NA, length(obs_res)))})
-  })
+    error = function(cond) {
+      f <- f+1
+      return(NULL)
+    })
+  }
+  boot_res <- do.call("cbind",boot_res)
   if(return_sample) {
     return(boot_res)
   } else {
-    boot_qq <- t(rbind("est" = obs_res, apply(boot_res, 1, quantile, c(alpha/2, 1-(alpha/2)), na.rm = T)))
+    boot_qq <- rbind(t(rbind("est" = obs_res,
+                             apply(boot_res, 1, quantile, c(alpha/2, 1-(alpha/2)), na.rm = T))),
+                     "n" = c(length(mdl$x), nsamp, f)) # append number of obs/samples/failures
     return(boot_qq)
   }
 }
@@ -187,6 +201,7 @@ cmodel_results <- function(mdl, rp = 10, cov_f, cov_hist, cov_fut,
   # get bootstrapped intervals, select only the elements of interest
   ci_eval <- boot_ci(mdl_eval, cov_f = cov_f, cov_cf = cov_hist, ev = event_rl, rp = rp, nsamp = nsamp)[key_par,,drop = F]
   ci_attr <- boot_ci(mdl_attr, cov_f = cov_f, cov_cf = cov_hist, ev = event_rl, rp = rp, nsamp = nsamp)
+  n_attr <- setNames(ci_attr["n",], paste0("attr_", c("nobs", "nsamp", "nfailed")))
   ci_attr <- ci_attr[grepl("PR|dI_abs|dI_rel", rownames(ci_attr)),]
 
   # flatten & rename
@@ -195,6 +210,7 @@ cmodel_results <- function(mdl, rp = 10, cov_f, cov_hist, cov_fut,
 
   # compile results so far
   res <- c(ci_eval, "rp_value" = event_rl, ci_attr)
+  c_aic <- c("aic_eval" = aic(mdl_eval), "aic_attr" = aic(mdl_attr))
 
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   # bootstrap model results (if future covariates given)
@@ -208,22 +224,23 @@ cmodel_results <- function(mdl, rp = 10, cov_f, cov_hist, cov_fut,
 
     # bootstrap results
     ci_proj <- boot_ci(mdl_proj, cov_f = cov_f, cov_cf = cov_fut, ev = event_rl, rp = rp, nsamp = nsamp)
+    n_proj <- setNames(ci_proj["n",], paste0("proj_", c("nobs", "nsamp", "nfailed")))
     ci_proj <- ci_proj[grepl("PR|dI_abs|dI_rel", rownames(ci_proj)),]
 
     # invert future projections
     ci_proj[grepl("PR", rownames(ci_proj)),] <- 1/ci_proj[grepl("PR", rownames(ci_proj)),c(1,3,2)]
     ci_proj[grepl("dI_", rownames(ci_proj)),] <- -ci_proj[grepl("dI_", rownames(ci_proj)), c(1,3,2)]
-
     ci_proj <- unlist(lapply(rownames(ci_proj), function(cnm) setNames(ci_proj[cnm,], paste("proj", gsub("_", "-", cnm), c("est", "lower", "upper"), sep = "_"))))
 
     res <- c(res, ci_proj)
+    n_attr <- c(n_attr, n_proj)
+    c_aic <- c(c_aic,  "aic_proj" = aic(mdl_proj))
   }
 
   #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
   # add AIC for each model
-  res <- c(res, "aic_eval" = aic(mdl_eval), "aic_attr" = aic(mdl_attr))
-  if(!missing(cov_fut)) res <- c(res, "aic_proj" = aic(mdl_proj))
+  res <- c(res, c_aic, n_attr)
 
   # reshape & relabel results
   res <- t(data.frame(res))

@@ -27,9 +27,9 @@ ns_loglik <- function(pars, cov, x, dist, fittype) {
   if(any(scale <= 0)) return(NA)
 
   # return negative log-likelihood
-  if(dist %in% c("norm", "norm_logt")) {
+  if (dist %in% c("norm", "norm_logt")) {
     return(-sum(dnorm(x, mean = loc, sd = scale, log = T)))
-  } else if(dist == "gev") {
+  } else if (dist == "gev") {
     shape = pars["shape"]
     return(-sum(devd(x, loc = loc, scale = scale, shape = shape, log = T)))
   } else if (dist == "gumbel") {
@@ -171,7 +171,7 @@ refit <- function(mdl, new_data) {
 #'
 aic <- function(mdl) {
   nll <- 2 * length(mdl$par) + 2 * mdl$value
-  if(mdl$dist %in% c("norm_logt")) nll <- nll + 2*sum(log(mdl$x))
+  if(mdl$dist %in% c("norm_logt")) nll <- nll + 2*sum(mdl$x)
   return(nll)
 }
 
